@@ -71,7 +71,7 @@ class COCOeval:
     # developed to support multiple pose-related datasets, including COCO,
     # CrowdPose and so on.
 
-    def __init__(self, cocoGt=None, cocoDt=None, iouType='keypoints', sigmas=None, use_area=True):
+    def __init__(self, cocoGt=None, cocoDt=None, iouType='keypoints', sigmas=None, use_area=True, selector=None, save_errors=None):
         '''
         Initialize CocoEval using coco APIs for gt and dt
         :param cocoGt: coco object with ground truth annotations
@@ -105,6 +105,8 @@ class COCOeval:
             self.params.catIds = sorted(cocoGt.getCatIds())
             self.anno_file = cocoGt.anno_file
         self.use_area = use_area
+        self.selector = selector
+        self.save_errors = save_errors
 
     def _prepare(self):
         '''
@@ -317,10 +319,17 @@ class COCOeval:
             return []
         ious = np.zeros((len(dts), len(gts)))
         sigmas = self.sigmas
+
         vars = (sigmas * 2)**2
+
+        if self.save_errors:
+            all_errors = []
+
         k = len(sigmas)
         # compute oks between each detection and ground truth object
         for j, gt in enumerate(gts):
+            if self.save_errors:
+                all_error = []
             # create bounds for ignore regions(double the gt bbox)
             if p.iouType == 'keypoints_wholebody':
                 body_gt = gt['keypoints']
@@ -346,6 +355,7 @@ class COCOeval:
             bb = gt['bbox']
             x0 = bb[0] - bb[2]; x1 = bb[0] + bb[2] * 2
             y0 = bb[1] - bb[3]; y1 = bb[1] + bb[3] * 2
+            # print('len(dts):', len(dts))
             for i, dt in enumerate(dts):
                 if p.iouType == 'keypoints_wholebody':
                     body_dt = dt['keypoints']
@@ -383,9 +393,26 @@ class COCOeval:
                     tmparea = gt['bbox'][3] * gt['bbox'][2] * 0.53
                     e = (dx**2 + dy**2) / vars / (tmparea+np.spacing(1)) / 2
 
+
                 if k1 > 0:
                     e=e[vg > 0]
+
                 ious[i, j] = np.sum(np.exp(-e)) / e.shape[0]
+
+                if self.save_errors:
+                    ee = np.sqrt(dx**2 + dy**2).reshape(-1)
+                    ee[vg <= 0] = -100
+                    ee = np.insert(ee, 0, ious[i, j])
+                    all_error.append(ee)
+
+            if self.save_errors:
+                all_error = np.stack(all_error, axis=0)
+                print('all_error:', all_error.shape)
+                all_errors.append(all_error)
+        if self.save_errors:
+            all_errors = np.stack(all_errors, axis=0).reshape(-1, 18)
+            print('all_errors:', all_errors.shape)
+            np.save(f'{self.save_errors}/{imgId}_{catId}.npy', all_errors)
         return ious
 
     def evaluateImg(self, imgId, catId, aRng, maxDet):
