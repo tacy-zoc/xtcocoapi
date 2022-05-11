@@ -71,7 +71,7 @@ class COCOeval:
     # developed to support multiple pose-related datasets, including COCO,
     # CrowdPose and so on.
 
-    def __init__(self, cocoGt=None, cocoDt=None, iouType='keypoints', sigmas=None, use_area=True, selector=None, save_errors=None):
+    def __init__(self, cocoGt=None, cocoDt=None, iouType='keypoints', sigmas=None, clean=False, use_area=True, selector=None, save_errors=None):
         '''
         Initialize CocoEval using coco APIs for gt and dt
         :param cocoGt: coco object with ground truth annotations
@@ -107,6 +107,7 @@ class COCOeval:
         self.use_area = use_area
         self.selector = selector
         self.save_errors = save_errors
+        self.clean = clean
 
     def _prepare(self):
         '''
@@ -356,7 +357,17 @@ class COCOeval:
             x0 = bb[0] - bb[2]; x1 = bb[0] + bb[2] * 2
             y0 = bb[1] - bb[3]; y1 = bb[1] + bb[3] * 2
             # print('len(dts):', len(dts))
+
+            max_iou = 0
             for i, dt in enumerate(dts):
+                print('gt/dt keys', gt.keys(), dt.keys())
+                print('gt:', gt['bbox'], gt['clean_bbox'])
+                print('dt:', dt['bbox'], dt['clean_bbox'])
+                if self.clean:
+                    iou = maskUtils.iou([gt['clean_bbox']], [dt['clean_bbox']], [0])[0][0]
+                    # if np.abs(gt_bbox - dt_bbox).sum() > 1:
+                    #     print('skip')
+                    #     continue
                 if p.iouType == 'keypoints_wholebody':
                     body_dt = dt['keypoints']
                     foot_dt = dt['foot_kpts']
@@ -403,7 +414,13 @@ class COCOeval:
                     ee = np.sqrt(dx**2 + dy**2).reshape(-1)
                     ee[vg <= 0] = -100
                     ee = np.insert(ee, 0, ious[i, j])
-                    all_error.append(ee)
+
+                    if self.clean:
+                        if iou > max_iou:
+                            max_iou = iou
+                            all_error = [ee]
+                    else:
+                        all_error.append(ee)
 
             if self.save_errors:
                 all_error = np.stack(all_error, axis=0)
